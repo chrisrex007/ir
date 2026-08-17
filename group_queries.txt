@@ -1,0 +1,10 @@
+aerodynamics AND slipstream
+boundary AND layer
+heat OR transfer
+shock AND waves
+supersonic AND nozzle
+flows OR pressures
+laminar AND separation
+hypersonic OR viscous
+compressible AND turbulence
+lift OR drag

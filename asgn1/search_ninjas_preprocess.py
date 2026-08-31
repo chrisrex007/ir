@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
 """Preprocess the Cranfield collection: tokenize, normalize, remove stopwords, stem.
 
-Reads the raw collection (cran.all) and writes <group>_processed.all, where each
+Reads the raw collection (cran.all) and writes search_ninjas_processed.all, where each
 document is annotated with a .I tag for the docid and a .S tag for its tokens.
 
 Usage:
-    python3 group_preprocess.py [--input cran.all.1400] [--stopwords stopwords.txt]
-                                [--group group]
+    python3 search_ninjas_preprocess.py [--input cran.all.1400]
+                                        [--stopwords stopwords.txt]
 """
 
 import argparse
 import re
 
-import group_porter
+import search_ninjas_porter
+
+COLLECTION_FILE = "cran.all.1400"
+STOPWORDS_FILE = "stopwords.txt"
+PROCESSED_FILE = "search_ninjas_processed.all"
 
 # Only the title (.T) and abstract (.W) are indexed; authors (.A) and their
 # affiliation (.B) are ignored, as required by the assignment.
@@ -101,7 +105,7 @@ def stem_tokens(documents):
         for token in tokens:
             stem = cache.get(token)
             if stem is None:
-                stem = group_porter.stem(token)
+                stem = search_ninjas_porter.stem(token)
                 cache[token] = stem
             output.append(stem)
         stemmed[docid] = output
@@ -154,14 +158,12 @@ def preprocess(input_path, stopwords_path, output_path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", default="cran.all.1400", help="raw Cranfield collection")
-    parser.add_argument("--stopwords", default="stopwords.txt", help="stopword list")
-    parser.add_argument("--group", default="group", help="group name used as file prefix")
-    parser.add_argument("--output", help="output file (default <group>_processed.all)")
+    parser.add_argument("--input", default=COLLECTION_FILE, help="raw Cranfield collection")
+    parser.add_argument("--stopwords", default=STOPWORDS_FILE, help="stopword list")
+    parser.add_argument("--output", default=PROCESSED_FILE, help="preprocessed collection")
     args = parser.parse_args()
 
-    output = args.output or "%s_processed.all" % args.group
-    preprocess(args.input, args.stopwords, output)
+    preprocess(args.input, args.stopwords, args.output)
 
 
 if __name__ == "__main__":

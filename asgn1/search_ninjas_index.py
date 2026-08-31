@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 """Build the inverted index for the preprocessed Cranfield collection.
 
-Reads <group>_processed.all and writes <group>_cran.index. The first line of the
+Reads search_ninjas_processed.all and writes search_ninjas_cran.index. The first line of the
 index holds the vocabulary size and the largest indexed docid; every following
 line holds one term and its postings list of ascending docids, and the terms
 themselves are in lexicographical order.
 
 Usage:
-    python3 group_index.py [--input group_processed.all] [--group group]
+    python3 search_ninjas_index.py [--input search_ninjas_processed.all]
 """
 
 import argparse
 import re
+
+PROCESSED_FILE = "search_ninjas_processed.all"
+INDEX_FILE = "search_ninjas_cran.index"
 
 _DOC_TAG = re.compile(r"^\.I\s+(\d+)\s*$")
 
@@ -66,13 +69,12 @@ def write_index(postings, max_docid, output_path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", help="processed collection (default <group>_processed.all)")
-    parser.add_argument("--group", default="group", help="group name used as file prefix")
-    parser.add_argument("--output", help="index file (default <group>_cran.index)")
+    parser.add_argument("--input", default=PROCESSED_FILE, help="processed collection")
+    parser.add_argument("--output", default=INDEX_FILE, help="index file")
     args = parser.parse_args()
 
-    input_path = args.input or "%s_processed.all" % args.group
-    output_path = args.output or "%s_cran.index" % args.group
+    input_path = args.input
+    output_path = args.output
 
     documents = read_processed(input_path)
     postings = build_index(documents)

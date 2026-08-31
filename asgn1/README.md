@@ -12,31 +12,33 @@ count matches exactly.** See [Verification](#verification).
 
 | File | Description |
 | --- | --- |
-| `group_preprocess.py` | Tokenization, normalization, stopword removal, stemming |
-| `group_porter.py` | Porter (1980) stemming algorithm |
-| `group_index.py` | Builds the inverted index |
-| `group_search.py` | Boolean search over the index file |
-| `group_processed.all` | Preprocessed collection (output) |
-| `group_cran.index` | Inverted index (output) |
-| `group_results.txt` | Query results (output) |
-| `group_queries.txt` | The 12 sample queries, in both `AND` and `OR` form |
+| `search_ninjas_preprocess.py` | Tokenization, normalization, stopword removal, stemming |
+| `search_ninjas_porter.py` | Porter (1980) stemming algorithm |
+| `search_ninjas_index.py` | Builds the inverted index |
+| `search_ninjas_search.py` | Boolean search over the index file |
+| `search_ninjas_processed.all` | Preprocessed collection (output) |
+| `search_ninjas_cran.index` | Inverted index (output) |
+| `search_ninjas_results.txt` | Query results (output) |
+| `search_ninjas_queries.txt` | The 12 sample queries, in both `AND` and `OR` form |
 | `cran.all.1400` | Raw Cranfield collection (input) |
 | `stopwords.txt` | Stopword list (input) |
 
-`group` is the file-name prefix; every program accepts `--group <name>` to change it.
+Every program and output file carries the group name `search_ninjas` as its prefix,
+as the assignment requires.
 
 ## Running
 
 ```sh
-python3 group_preprocess.py                            # -> group_processed.all
-python3 group_index.py                                 # -> group_cran.index
-python3 group_search.py "aeroelastic AND aircraft"     # -> group_results.txt
-python3 group_search.py --queries group_queries.txt    # a batch of queries
+python3 search_ninjas_preprocess.py                            # -> search_ninjas_processed.all
+python3 search_ninjas_index.py                                 # -> search_ninjas_cran.index
+python3 search_ninjas_search.py "aeroelastic AND aircraft"     # -> search_ninjas_results.txt
+python3 search_ninjas_search.py --queries search_ninjas_queries.txt    # a batch of queries
 ```
 
-Each program takes `--input`, `--output` and `--group` if the defaults need to
-change; `python3 <program> --help` lists them. The full pipeline runs in under a
-second.
+The file names above are the defaults and need no arguments. Each program also
+accepts `--input` and `--output` should a file need to be read from or written to
+somewhere else; `python3 <program> --help` lists them. The full pipeline runs in
+under a second.
 
 ---
 
@@ -50,17 +52,17 @@ queries.
 A single query is passed as one quoted command-line argument:
 
 ```sh
-python3 group_search.py "aeroelastic AND aircraft"
+python3 search_ninjas_search.py "aeroelastic AND aircraft"
 ```
 
 A batch of queries is passed as a file holding **one query per line**, which is the
 easier route for a set of test queries:
 
 ```sh
-python3 group_search.py --queries your_queries.txt
+python3 search_ninjas_search.py --queries your_queries.txt
 ```
 
-Both write to `group_results.txt`, or to whatever `--output <file>` names. The
+Both write to `search_ninjas_results.txt`, or to whatever `--output <file>` names. The
 program exits with status 0 when at least one query was answered, and 1 when none
 could be parsed.
 
@@ -94,8 +96,8 @@ stemming as the collection was**, in the same order:
    used to build the index, so `aeroelastic` → `aeroelast`, `viscosity` → `viscos`,
    `oscillatory` → `oscillatori`, `nozzle` → `nozzl`.
 
-This is not a reimplementation: `group_search.prepare_term` calls
-`group_preprocess.normalize` and `group_porter.stem` directly, so a query term and
+This is not a reimplementation: `search_ninjas_search.prepare_term` calls
+`search_ninjas_preprocess.normalize` and `search_ninjas_porter.stem` directly, so a query term and
 an index term can never be reduced by different code.
 
 **Stopword removal is deliberately not applied to query words.** It does not need
@@ -109,14 +111,14 @@ list — the `AND` result is empty, and the `OR` result is the other term's post
 
 ### How the query is answered
 
-The two stemmed terms are looked up in `group_cran.index` by **binary search over
+The two stemmed terms are looked up in `search_ninjas_cran.index` by **binary search over
 the file's byte offsets**, and their postings lists are combined by a **linear
 merge** — `intersect` for `AND`, `union` for `OR`. Both are described under
 [Boolean search](#boolean-search) below.
 
 ### Output format
 
-`group_results.txt` holds one block per query, blocks separated by a blank line:
+`search_ninjas_results.txt` holds one block per query, blocks separated by a blank line:
 
 ```
 Query: aeroelastic AND aircraft
@@ -137,7 +139,7 @@ looks wrong, it shows immediately whether the cause was the stemmer or the merge
 
 ### Preprocessing
 
-The four stages are four separate functions in `group_preprocess.py`, applied to
+The four stages are four separate functions in `search_ninjas_preprocess.py`, applied to
 the whole collection in this order:
 
 1. **`tokenize(path)`** reads `cran.all` and splits it into raw token strings.
@@ -161,7 +163,7 @@ is written in surface form, so `the` has to be matched and removed before Porter
 would rewrite it. Stemming last also means the index and the queries are reduced
 by exactly the same function.
 
-The output, `group_processed.all`, holds one document per record:
+The output, `search_ninjas_processed.all`, holds one document per record:
 
 ```
 .I 1
@@ -171,11 +173,11 @@ experiment investig aerodynam wing slipstream ...
 
 ### Indexing
 
-`group_index.py` reads the processed file and inverts it. Documents are visited in
+`search_ninjas_index.py` reads the processed file and inverts it. Documents are visited in
 ascending docid order, so each term's postings list is built already sorted and a
 duplicate can only be the docid just appended — no sorting or de-duplication pass
 is needed afterwards. Terms are then written in lexicographical order to
-`group_cran.index`:
+`search_ninjas_cran.index`:
 
 ```
 4626, 1400
@@ -188,7 +190,7 @@ separated by commas.
 
 ### Boolean search
 
-`group_search.py` answers `<word1> AND|OR <word2>`, processing the query words as
+`search_ninjas_search.py` answers `<word1> AND|OR <word2>`, processing the query words as
 described under [How queries are processed](#how-queries-are-processed).
 
 Two properties of the index file are used to keep the search cheap:
@@ -209,8 +211,8 @@ Two properties of the index file are used to keep the search cheap:
 
 ## Verification
 
-`group_queries.txt` holds all 12 sample queries in both their `AND` and `OR` form,
-and `group_results.txt` holds the answers produced by these programs. Every `AND`
+`search_ninjas_queries.txt` holds all 12 sample queries in both their `AND` and `OR` form,
+and `search_ninjas_results.txt` holds the answers produced by these programs. Every `AND`
 docid list matches the published expected result exactly, docid for docid, and
 every `OR` count matches:
 
@@ -236,8 +238,8 @@ The programs were additionally cross-checked against each other:
   terms that sort before the first line, after the last line, or between two lines.
 - `intersect` and `union` agree with Python set operations over 3000 random term
   pairs.
-- The docid sets produced by `group_search.py` agree with the term-to-docid mapping
-  rebuilt directly from `group_processed.all`, which checks the index builder
+- The docid sets produced by `search_ninjas_search.py` agree with the term-to-docid mapping
+  rebuilt directly from `search_ninjas_processed.all`, which checks the index builder
   independently of the search program.
 
 ## Collection statistics

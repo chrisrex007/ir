@@ -3,33 +3,36 @@
 
 The query words are normalized and stemmed exactly as the collection was, their
 postings lists are fetched from the index file, and the two lists are combined
-with a linear merge. Matching docids are written to <group>_results.txt.
+with a linear merge. Matching docids are written to search_ninjas_results.txt.
 
 Because the index file is sorted lexicographically, a term is located with a
 binary search over the file's byte offsets (O(log n) seeks) instead of scanning
 it, and the merge of two sorted postings lists costs O(len(p1) + len(p2)).
 
 Usage:
-    python3 group_search.py "aerodynamic AND experimental"
-    python3 group_search.py --queries queries.txt
+    python3 search_ninjas_search.py "aerodynamic AND experimental"
+    python3 search_ninjas_search.py --queries queries.txt
 """
 
 import argparse
 import sys
 
-import group_preprocess
-import group_porter
+import search_ninjas_preprocess
+import search_ninjas_porter
+
+INDEX_FILE = "search_ninjas_cran.index"
+RESULTS_FILE = "search_ninjas_results.txt"
 
 OPERATORS = ("AND", "OR")
 
 
 def prepare_term(word):
     """Normalize and stem a query word the same way the collection was processed."""
-    pieces = group_preprocess.normalize({0: [word]})[0]
+    pieces = search_ninjas_preprocess.normalize({0: [word]})[0]
     if not pieces:
         return ""
     # A hyphenated query word normalizes to several pieces; use the first.
-    return group_porter.stem(pieces[0])
+    return search_ninjas_porter.stem(pieces[0])
 
 
 def parse_query(query):
@@ -180,16 +183,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("query", nargs="?", help='e.g. "aerodynamic AND experimental"')
     parser.add_argument("--queries", help="file holding one Boolean query per line")
-    parser.add_argument("--group", default="group", help="group name used as file prefix")
-    parser.add_argument("--index", help="index file (default <group>_cran.index)")
-    parser.add_argument("--output", help="results file (default <group>_results.txt)")
+    parser.add_argument("--index", default=INDEX_FILE, help="index file")
+    parser.add_argument("--output", default=RESULTS_FILE, help="results file")
     args = parser.parse_args()
 
     if not args.query and not args.queries:
         parser.error("give a query, or --queries with a file of queries")
 
-    index_path = args.index or "%s_cran.index" % args.group
-    output_path = args.output or "%s_results.txt" % args.group
+    index_path = args.index
+    output_path = args.output
 
     queries = []
     if args.query:

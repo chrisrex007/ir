@@ -53,7 +53,12 @@ def tokenize(input_path):
 
             field_match = _FIELD_TAG.match(line)
             if field_match:
-                field = field_match.group(1)
+                tag = field_match.group(1)
+                # A record is written as .T .A .B .W, so an .A or .B tag appearing
+                # once the abstract has started is a stray line inside the abstract
+                # (document 240) rather than the start of an author field.
+                if not (tag in ("A", "B") and field == "W"):
+                    field = tag
                 continue
 
             if docid is not None and field in CONTENT_FIELDS:

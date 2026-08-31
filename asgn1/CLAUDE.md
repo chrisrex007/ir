@@ -71,10 +71,13 @@ against a linear scan.
 ## Collection quirks
 
 `cran.all.1400` is not uniformly tagged. Document 240 has stray `.A`/`.B` lines inside
-its abstract (so two abstract lines are read as author text and skipped), and
-documents 576 and 578 each have a second `.W` section. The parser is a state machine
-keyed on the most recent field tag, which absorbs all three cases; a parser that
-assumes exactly one `.T .A .B .W` group per document will not.
+its abstract, and documents 576 and 578 each have a second `.W` section. The parser is
+a state machine keyed on the most recent field tag, with one extra rule: a record is
+written `.T .A .B .W`, so an `.A`/`.B` tag arriving after `.W` has opened is stray text
+inside the abstract and does not switch fields. Without that rule document 240 silently
+loses the whole remainder of its abstract (~15 lines) to "author" mode, which is enough
+to fail sample query 2 (`dynamics OR effects`) by one document — the kind of error that
+shows up only against the published expected counts.
 
 Docids are contiguous 1..1400. The body text is already lowercase, and in most
 documents the title is repeated as the first lines of the abstract — harmless for a
@@ -86,6 +89,16 @@ what keeps them from breaking the comparison.
 
 ## Current output
 
-1400 documents, 247,273 raw tokens, 135,961 after stopword removal, 4,625 distinct
-stems, 80,445 postings. `README.md` carries the full methodology write-up required for
-submission; update its statistics table when the preprocessing changes.
+1400 documents, 247,422 raw tokens, 136,043 after stopword removal, 4,626 distinct
+stems, 80,477 postings.
+
+All 12 sample queries in `sample_queries.md` reproduce exactly — every `AND` docid list
+matches docid for docid and every `OR` count matches. `group_queries.txt` holds them in
+both `AND` and `OR` form, so `python3 group_search.py --queries group_queries.txt`
+regenerates the evidence; graders will run further queries later, so re-check this after
+any preprocessing change.
+
+`README.md` carries the methodology write-up required for submission, including a "How
+queries are processed" section written for whoever tests the additional queries. Update
+its statistics table, its lookup-cost figures and that section whenever the pipeline or
+the query handling changes.

@@ -5,6 +5,9 @@ a Boolean retrieval program for two-term `AND` / `OR` queries. Python 3, standar
 library only — no information retrieval library is used, and the Porter stemmer is
 implemented directly from the published algorithm.
 
+**Verified against all 12 sample queries: every `AND` docid list and every `OR`
+count matches exactly.** See [Verification](#verification).
+
 ## Files
 
 | File | Description |
@@ -16,7 +19,7 @@ implemented directly from the published algorithm.
 | `group_processed.all` | Preprocessed collection (output) |
 | `group_cran.index` | Inverted index (output) |
 | `group_results.txt` | Query results (output) |
-| `group_queries.txt` | Sample test queries |
+| `group_queries.txt` | The 12 sample queries, in both `AND` and `OR` form |
 | `cran.all.1400` | Raw Cranfield collection (input) |
 | `stopwords.txt` | Stopword list (input) |
 
@@ -25,14 +28,110 @@ implemented directly from the published algorithm.
 ## Running
 
 ```sh
-python3 group_preprocess.py                          # -> group_processed.all
-python3 group_index.py                               # -> group_cran.index
-python3 group_search.py "aerodynamics AND slipstream" # -> group_results.txt
-python3 group_search.py --queries group_queries.txt   # a batch of queries
+python3 group_preprocess.py                            # -> group_processed.all
+python3 group_index.py                                 # -> group_cran.index
+python3 group_search.py "aeroelastic AND aircraft"     # -> group_results.txt
+python3 group_search.py --queries group_queries.txt    # a batch of queries
 ```
 
 Each program takes `--input`, `--output` and `--group` if the defaults need to
-change; `python3 <program> --help` lists them.
+change; `python3 <program> --help` lists them. The full pipeline runs in under a
+second.
+
+---
+
+## How queries are processed
+
+This section is the one to read when testing the programs against additional
+queries.
+
+### Running a query
+
+A single query is passed as one quoted command-line argument:
+
+```sh
+python3 group_search.py "aeroelastic AND aircraft"
+```
+
+A batch of queries is passed as a file holding **one query per line**, which is the
+easier route for a set of test queries:
+
+```sh
+python3 group_search.py --queries your_queries.txt
+```
+
+Both write to `group_results.txt`, or to whatever `--output <file>` names. The
+program exits with status 0 when at least one query was answered, and 1 when none
+could be parsed.
+
+### Accepted query form
+
+A query is exactly three whitespace-separated fields:
+
+```
+<word1> AND <word2>
+<word1> OR  <word2>
+```
+
+- The operator may be written in any case — `AND`, `and`, `Or` are all accepted.
+- Only the two connectives `AND` and `OR` are supported, as the assignment
+  specifies; there is no `NOT`, no parentheses, and no third term.
+- A malformed query (wrong number of fields, or an unknown operator) is reported on
+  stderr and skipped, and the remaining queries in a batch are still answered.
+
+### What happens to each query word
+
+Each of the two query words is put through **exactly the same normalization and
+stemming as the collection was**, in the same order:
+
+1. **Case-folding** — the word is lowercased.
+2. **Possessive removal** — a trailing `'s` is dropped, so `earth's` becomes `earth`.
+3. **Splitting on non-alphanumeric characters** — every character that is not a
+   letter or a digit is treated as a separator, so `re-entry` yields `re` and
+   `entry`, and `/slip/` yields `slip`. If a query word splits into more than one
+   piece, the first piece is used as the query term.
+4. **Porter stemming** — the result is reduced by the same Porter implementation
+   used to build the index, so `aeroelastic` → `aeroelast`, `viscosity` → `viscos`,
+   `oscillatory` → `oscillatori`, `nozzle` → `nozzl`.
+
+This is not a reimplementation: `group_search.prepare_term` calls
+`group_preprocess.normalize` and `group_porter.stem` directly, so a query term and
+an index term can never be reduced by different code.
+
+**Stopword removal is deliberately not applied to query words.** It does not need
+to be: stopwords were removed when the index was built, so a stopword query term
+simply finds no postings. `the AND flow` therefore returns nothing and
+`the OR flow` returns exactly the documents containing `flow`, which is the correct
+Boolean answer either way.
+
+A query term that is not in the vocabulary is treated as having an empty postings
+list — the `AND` result is empty, and the `OR` result is the other term's postings.
+
+### How the query is answered
+
+The two stemmed terms are looked up in `group_cran.index` by **binary search over
+the file's byte offsets**, and their postings lists are combined by a **linear
+merge** — `intersect` for `AND`, `union` for `OR`. Both are described under
+[Boolean search](#boolean-search) below.
+
+### Output format
+
+`group_results.txt` holds one block per query, blocks separated by a blank line:
+
+```
+Query: aeroelastic AND aircraft
+Stemmed query: aeroelast AND aircraft
+Matched documents: 5
+12,14,78,184,202
+```
+
+The four lines are the query as it was given, the two terms after normalization and
+stemming, the number of matching documents, and the matching docids in ascending
+order, separated by commas. The docid line is empty when nothing matched. The
+`Stemmed query` line is there to make a mismatch easy to diagnose: if a result
+looks wrong, it shows immediately whether the cause was the stemmer or the merge.
+
+---
 
 ## Methodology
 
@@ -79,8 +178,8 @@ is needed afterwards. Terms are then written in lexicographical order to
 `group_cran.index`:
 
 ```
-4625, 1400
-aerodynam 1,7,10,...
+4626, 1400
+aeroelast 12,14,78,...
 ```
 
 The first line is the vocabulary size and the largest indexed docid. Every
@@ -89,9 +188,8 @@ separated by commas.
 
 ### Boolean search
 
-`group_search.py` answers `<word1> AND|OR <word2>`. The query words go through the
-same `normalize` and Porter `stem` functions as the collection, so `aerodynamics`
-becomes `aerodynam` and matches the index.
+`group_search.py` answers `<word1> AND|OR <word2>`, processing the query words as
+described under [How queries are processed](#how-queries-are-processed).
 
 Two properties of the index file are used to keep the search cheap:
 
@@ -100,42 +198,72 @@ Two properties of the index file are used to keep the search cheap:
   A seek lands in the middle of a line, so the rest of that line is skipped before
   a term is read; the byte range is maintained such that every line beginning below
   its lower bound sorts before the target, which keeps the skipped lines reachable.
-  Measured over all 4625 terms, the worst lookup costs 20 seeks and reads 42 lines
-  out of 4625 — logarithmic rather than linear in the vocabulary.
+  Measured over all 4626 terms, the worst lookup costs 20 seeks and reads 42 lines
+  out of 4626 — logarithmic rather than linear in the vocabulary.
 - **The two postings lists are combined by a linear merge**, walking both lists
   once with two indices: `intersect` for `AND`, `union` for `OR`. This costs
   O(len(p1) + len(p2)) and needs no hashing or sorting, because the postings are
   already in ascending docid order.
 
-Results are written to `group_results.txt`, one block per query:
+---
 
-```
-Query: aerodynamics AND slipstream
-Stemmed query: aerodynam AND slipstream
-Matched documents: 5
-1,453,1064,1089,1164
-```
+## Verification
+
+`group_queries.txt` holds all 12 sample queries in both their `AND` and `OR` form,
+and `group_results.txt` holds the answers produced by these programs. Every `AND`
+docid list matches the published expected result exactly, docid for docid, and
+every `OR` count matches:
+
+| # | Query | Expected \|AND\| | Ours | Expected \|OR\| | Ours |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `aeroelastic` / `aircraft` | 5 | 5 | 84 | 84 |
+| 2 | `dynamics` / `effects` | 34 | 34 | 586 | 586 |
+| 3 | `hypersonic` / `wake` | 5 | 5 | 211 | 211 |
+| 4 | `flutter` / `steady` | 11 | 11 | 151 | 151 |
+| 5 | `viscosity` / `reynolds` | 23 | 23 | 239 | 239 |
+| 6 | `heat` / `stagnation` | 80 | 80 | 360 | 360 |
+| 7 | `oscillatory` / `transonic` | 1 | 1 | 83 | 83 |
+| 8 | `creep` / `buckling` | 26 | 26 | 136 | 136 |
+| 9 | `pressure` / `wing` | 91 | 91 | 687 | 687 |
+| 10 | `transonic` / `nozzle` | 3 | 3 | 140 | 140 |
+| 11 | `excitation` / `noise` | 5 | 5 | 47 | 47 |
+| 12 | `mass` / `flutter` | 6 | 6 | 121 | 121 |
+
+The programs were additionally cross-checked against each other:
+
+- `lookup` (binary search) returns the same postings as a plain linear scan of the
+  index file, for all 4626 terms in the vocabulary, and finds nothing for absent
+  terms that sort before the first line, after the last line, or between two lines.
+- `intersect` and `union` agree with Python set operations over 3000 random term
+  pairs.
+- The docid sets produced by `group_search.py` agree with the term-to-docid mapping
+  rebuilt directly from `group_processed.all`, which checks the index builder
+  independently of the search program.
 
 ## Collection statistics
 
 | Quantity | Value |
 | --- | --- |
 | Documents | 1400 |
-| Raw tokens | 247,273 |
-| After normalization | 242,923 |
-| After stopword removal | 135,961 |
-| Vocabulary (distinct stems) | 4,625 |
-| Postings | 80,445 |
+| Raw tokens | 247,422 |
+| After normalization | 243,068 |
+| After stopword removal | 136,043 |
+| Vocabulary (distinct stems) | 4,626 |
+| Postings | 80,477 |
 | Maximum docid | 1400 |
 
 ## Notes on the collection
 
-Three documents deviate from the regular `.T .A .B .W` tag order, and the parser
-handles them by attributing text to whichever field tag most recently opened:
+Three documents deviate from the regular `.T .A .B .W` tag order. Because a record
+is written as `.T .A .B .W`, an `.A` or `.B` tag that appears once the abstract has
+already begun is stray text inside the abstract rather than the start of a new
+author field, and the parser treats it that way:
 
-- **Document 240** has stray `.A` and `.B` lines inside its abstract, so the two
-  abstract lines that follow them are treated as author/affiliation text and are
-  not indexed.
+- **Document 240** has stray `.A` and `.B` lines in the middle of its abstract.
+  A parser that honours them switches to "author" mode and silently discards the
+  whole remainder of the abstract — about fifteen lines. Ignoring them keeps the
+  document's text intact, which is what makes docid 240 appear in query 2
+  (`dynamics OR effects`).
 - **Documents 576 and 578** each contain a second `.W` section, whose text is
   appended to the same abstract.
 

@@ -21,7 +21,7 @@ import time and fails with `Unable to find javac` otherwise.
 ./search_ninjas_setup.sh                             # venv + JDK + untar cran.tar.gz
 .venv/bin/python search_ninjas_parse.py              # sanity-check the collection parse
 .venv/bin/python search_ninjas_index.py --overwrite  # build one index variant
-.venv/bin/python search_ninjas_experiments.py        # all four experiment stages
+.venv/bin/python search_ninjas_experiments.py        # all three experiment stages
 .venv/bin/python search_ninjas_experiments.py --stage 3   # just one stage
 .venv/bin/python search_ninjas_search.py --evaluate  # tuned run -> search_ninjas_results.txt
 ```
@@ -52,10 +52,10 @@ first when a number moves unexpectedly.
 
 - **Every program and output file is prefixed with the group name `search_ninjas`.**
   As in PA1 the prefix is fixed — module constants, not a flag.
-- **Sparse lexical models only.** No dense or neural retrieval. The weighting models in
-  `search_ninjas_experiments.MODELS` are all term-weighting formulas over one inverted
-  index; the language-model entries are included for reference and flagged as such in
-  the report rather than being submitted as the final system.
+- **Sparse vector space models only.** The brief rules out advanced probabilistic and
+  dense neural retrieval, so `search_ninjas_experiments.MODELS` holds only `Tf`,
+  `TF_IDF`, `LemurTF_IDF` and `BM25`. Terrier's DFR models and its Bo1/KL query
+  expansion score slightly higher but are out of scope and must not be reintroduced.
 - **Indexing and search time must be reported**, so `build_index` returns its elapsed
   time and only times a real build (a reused index reports 0.0), and `timed_run`
   measures retrieval separately.
@@ -72,13 +72,12 @@ opened is stray text inside the abstract rather than a new field — without it 
 stemmer, stopword list) and names each index after its variant, so stage 1 can compare
 them and the later stages just ask for the winner by name.
 
-`search_ninjas_experiments.py` runs four narrowing stages: preprocessing → model →
-parameters → query expansion. Parameters are tuned on **odd** query ids and reported on
-**even** ones. The odd/even interleave is deliberate: the Cranfield queries are grouped
-by subject, so a contiguous split would tune on a different subject mix than it reports
-on. Stage 4 writes `best_configuration.json`, which is the only thing
-`search_ninjas_search.py` reads — the tuning result is data, not a second copy of the
-numbers in the code.
+`search_ninjas_experiments.py` runs three narrowing stages: preprocessing → model →
+parameters. Parameters are tuned on **odd** query ids and reported on **even** ones. The
+odd/even interleave is deliberate: the Cranfield queries are grouped by subject, so a
+contiguous split would tune on a different subject mix than it reports on. Stage 3 writes
+`best_configuration.json`, which is the only thing `search_ninjas_search.py` reads — the
+tuning result is data, not a second copy of the numbers in the code.
 
 ## Collection quirks
 

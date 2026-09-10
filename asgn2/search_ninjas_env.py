@@ -1,10 +1,4 @@
-"""Locate the JDK that PyTerrier needs before ``import pyterrier`` runs.
-
-Terrier is a Java engine, so pyjnius has to find a JVM at import time. This
-machine has no system Java; ``search_ninjas_setup.sh`` drops a private JDK under
-``.venv/jdk``. Import this module *first*, before any pyterrier import, and it
-points JAVA_HOME at that JDK (leaving an existing JAVA_HOME alone).
-"""
+"""Point JAVA_HOME at the bundled JDK; import this before pyterrier, which resolves the JVM at import time."""
 
 import glob
 import os
@@ -14,7 +8,7 @@ VENV_JDK_GLOB = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".venv"
 
 
 def ensure_java_home():
-    """Set JAVA_HOME/PATH to the bundled JDK unless the caller already has one."""
+    """Use the JDK in .venv/jdk unless the environment already provides a usable one."""
     if os.environ.get("JAVA_HOME") and os.path.exists(os.path.join(os.environ["JAVA_HOME"], "bin", "javac")):
         return os.environ["JAVA_HOME"]
 

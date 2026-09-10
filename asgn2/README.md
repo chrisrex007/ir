@@ -12,7 +12,7 @@ further queries needs to know.
 
 ```sh
 ./search_ninjas_setup.sh                                  # venv, JDK, unpack cran.tar.gz
-.venv/bin/python search_ninjas_experiments.py             # all four experiment stages
+.venv/bin/python search_ninjas_experiments.py             # all three experiment stages
 .venv/bin/python search_ninjas_search.py --evaluate       # the tuned run + its scores
 .venv/bin/python search_ninjas_report.py                  # the submission PDF
 ```
@@ -57,7 +57,7 @@ period.
 ## Configuration
 
 `search_ninjas_search.py` takes its entire configuration from
-`search_ninjas_experiment_results/best_configuration.json`, which stage 4 writes. The
+`search_ninjas_experiment_results/best_configuration.json`, which stage 3 writes. The
 tuning result is data, not a second copy of the numbers in the code — re-run the
 experiments and the search script follows. If the file is absent it falls back to the
 defaults in `DEFAULT_CONFIG`.
@@ -69,12 +69,11 @@ non-alphanumeric stripping (English tokeniser), stopword removal against PA1's
 `stopwords.txt`, Porter stemming. All three are switchable — `--fields`, `--stemmer`,
 `--stopwords` on `search_ninjas_index.py` — so stage 1 can measure each one.
 
-**Experiments** run in four narrowing stages: preprocessing → weighting model →
-parameters → pseudo-relevance feedback. Stages 3 and 4 tune on the **odd-numbered**
-queries and report on the **even-numbered** ones as well as on the full set. The
-interleaved split rather than a contiguous one is deliberate: the Cranfield queries are
-grouped by subject, so cutting the list in half would tune on a different subject mix
-than it reports on.
+**Experiments** run in three narrowing stages: preprocessing → weighting model →
+parameters. Stage 3 tunes on the **odd-numbered** queries and reports on the
+**even-numbered** ones as well as on the full set. The interleaved split rather than a
+contiguous one is deliberate: the Cranfield queries are grouped by subject, so cutting the
+list in half would tune on a different subject mix than it reports on.
 
 **Metrics** come from `ir_measures`: MAP (used for every selection), nDCG@10, nDCG@20,
 P@5, P@10, recall@100, RR. Comparisons against a baseline carry a paired sign test.
@@ -85,21 +84,25 @@ gains 4..1. The 225 rows coded `-1` are unjudged markers and are dropped.
 
 ## What the experiments found
 
-| Stage | Finding | Held-out MAP effect |
+| Stage | Finding | MAP effect |
 | --- | --- | --- |
 | 1 | Stopword removal is the largest single effect in the study | ≈ +0.11 |
 | 1 | Porter stemming, and it beats weak Porter | ≈ +0.03 |
 | 1 | Field choice (title+abstract vs abstract vs everything) | ≈ ±0.01 |
-| 2 | Model choice among IDF-weighted models is narrow; no-IDF `Tf` collapses | 0.19 → 0.33 |
+| 2 | Model choice among IDF-weighted models is narrow; no-IDF `Tf` collapses | 0.19 → 0.32 |
 | 3 | Parameter tuning is **not** significant (p ≈ 0.19) | ≈ +0.005 |
-| 4 | Bo1 query expansion **is** significant (p ≈ 0.006) | ≈ +0.023 |
 
-The headline: preprocessing and query expansion carry this collection, parameter tuning
-does not. The BM25 response surface is nearly flat — every setting from k₁ 0.8–4.0 and
-b 0.3–1.0 lands within about 0.01 MAP. Expansion is also the only change with a real
-cost, roughly tripling search time because it retrieves twice.
+The headline: preprocessing carries this collection and parameter tuning does not. The
+BM25 response surface is shallow rather than flat — MAP varies by about 0.027 across the
+settings from k₁ 0.8–4.0 and b 0.3–1.0, and by about 0.049 across the full 110-point
+grid, which is small next to the preprocessing effect but not nothing.
 
 Full tables are in `search_ninjas_experiment_results/*.csv` and in the report.
+
+**Models not used.** The assignment permits only sparse vector space models, so Terrier's
+Divergence-From-Randomness weighting models and its pseudo-relevance feedback (Bo1, KL)
+are deliberately left out even though both are available and both score slightly higher
+here. The submitted system is tuned BM25 with no query rewriting.
 
 ## Collection quirks
 

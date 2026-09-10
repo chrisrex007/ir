@@ -1,12 +1,7 @@
-"""Render the submission report (PDF) from the experiment output.
+"""Render the submission report as a PDF from the CSVs in search_ninjas_experiment_results.
 
-Every table and every number in the report is read out of
-``search_ninjas_experiment_results/`` rather than typed in, so the report cannot
-drift away from the runs it describes: re-run the experiments, re-run this, and
-the prose stays attached to the current numbers.
-
-    python3 search_ninjas_report.py            # -> search_ninjas_report.pdf
-    python3 search_ninjas_report.py --html     # keep the intermediate HTML too
+    python3 search_ninjas_report.py         # -> search_ninjas_report.pdf
+    python3 search_ninjas_report.py --html  # keep the intermediate HTML too
 """
 
 import argparse
@@ -52,16 +47,12 @@ def load(name):
     return pd.read_csv(os.path.join(RESULTS_DIR, f"{name}.csv"))
 
 
-# Metric columns want four decimals; times and lengths want two; counts want none.
-# A single float_format across the frame would print "106.2400" for an average
-# document length and "0.4100" for a build time.
+# Metric columns want four decimals; times and lengths two; counts none.
 DECIMALS = {"index_time_s": 2, "search_ms_per_query": 2, "avg_doc_length": 2,
             "terms": 0, "postings": 0, "tokens": 0, "documents": 0,
             "AP +": 0, "AP -": 0, "AP p-value": 6}
 
-# The sign-test columns pyterrier appends for the MAP comparison. Reporting them
-# in the table matters here: several of the differences in this study are within
-# noise, and a bare point estimate would hide that.
+# The sign-test columns pyterrier appends to a baseline comparison.
 SIGNIFICANCE = ["AP +", "AP -", "AP p-value"]
 
 
@@ -70,10 +61,9 @@ HEADERS = {"name": "Configuration", "model": "Model", "index_time_s": "index (s)
            "AP +": "better", "AP -": "worse", "AP p-value": "p"}
 
 
-def table(frame, columns=None, limit=None):
-    frame = (frame if columns is None else frame[columns]).copy()
-    if limit:
-        frame = frame.head(limit)
+def table(frame, columns):
+    """Format the selected columns of a results frame as an HTML table."""
+    frame = frame[columns].copy()
     for column in frame.columns:
         if pd.api.types.is_numeric_dtype(frame[column]):
             places = DECIMALS.get(column, 4)
@@ -81,14 +71,10 @@ def table(frame, columns=None, limit=None):
     return frame.rename(columns=HEADERS).to_html(index=False, border=0)
 
 
-def significance(frame, metric="AP"):
-    """Pull the sign-test counts and p-value pyterrier adds for a baseline run."""
+def significance(frame):
+    """Pull the sign-test counts and p-value pyterrier adds for a baseline comparison."""
     row = frame.iloc[-1]
-    return {
-        "better": int(row[f"{metric} +"]),
-        "worse": int(row[f"{metric} -"]),
-        "p": float(row[f"{metric} p-value"]),
-    }
+    return {"better": int(row["AP +"]), "worse": int(row["AP -"]), "p": float(row["AP p-value"])}
 
 
 def pct(new, old):
@@ -99,22 +85,27 @@ def build_html():
     config = json.load(open(os.path.join(RESULTS_DIR, "best_configuration.json")))
     stage1 = load("stage1_preprocessing")
     stage2 = load("stage2_models")
-    per_model = load("stage3_best_per_model_train")
+    sweep = load("stage3_parameter_sweep_train")
     tuned_held = load("stage3_tuned_vs_default_heldout")
     tuned_full = load("stage3_tuned_vs_default_full")
-    qe_train = load("stage4_expansion_train")
-    qe_held = load("stage4_expansion_heldout")
-    qe_full = load("stage4_expansion_full")
 
     base_ap = float(stage2[stage2.name == "BM25"]["AP"].iloc[0])
-    final_ap = float(qe_full["AP"].iloc[-1])
-    tuned_ap = float(qe_full["AP"].iloc[0])
-    held_base, held_final = float(qe_held["AP"].iloc[0]), float(qe_held["AP"].iloc[-1])
-    qe_sig = significance(qe_held)
+    final_ap = float(tuned_full["AP"].iloc[-1])
+    held_final = float(tuned_held["AP"].iloc[-1])
     param_sig = significance(tuned_held)
 
+    # The spread of the k_1 x b grid, so the flatness claim below is measured, not asserted.
+    grid_spread = float(sweep["AP"].max() - sweep["AP"].min())
+    window = sweep[sweep.name.str.extract(r"k_1=([\d.]+)")[0].astype(float).between(0.8, 4.0)
+                   & sweep.name.str.extract(r"b=([\d.]+)")[0].astype(float).between(0.3, 1.0)]
+    window_spread = float(window["AP"].max() - window["AP"].min())
+
+    tfidf_ap = float(stage2[stage2.name == "TF_IDF"]["AP"].iloc[0])
+    lemur_ap = float(stage2[stage2.name == "LemurTF_IDF"]["AP"].iloc[0])
+    tf_ap = float(stage2[stage2.name == "Tf"]["AP"].iloc[0])
+
     best_index_row = stage1.iloc[0]
-    worst_stop = stage1[stage1.name.str.endswith("__none")].iloc[0]
+    best_no_stopwords = stage1[stage1.name.str.endswith("__none")].iloc[0]
 
     members = "".join(f"<li>{name}{' &mdash; ' + roll if roll else ''}</li>" for name, roll in MEMBERS)
     controls = ", ".join(f"{key} = {value}" for key, value in config["controls"].items())
@@ -134,9 +125,10 @@ def build_html():
 <p>Build a ranked retrieval pipeline over the Cranfield collection (1,400 aerodynamics
 abstracts, 225 test queries, 1,612 graded relevance judgements) using an open-source
 search engine, and tune the preprocessing, the weighting model and its parameters to
-maximise retrieval effectiveness. Only sparse lexical models are permitted &mdash; no dense
-or neural retrieval. Indexing and search times are to be reported alongside
-effectiveness, and the resulting system is to be evaluated on further unseen queries.</p>
+maximise retrieval effectiveness. Only sparse vector space models are permitted: no
+advanced probabilistic models, and no dense or neural retrieval. Indexing and search times
+are to be reported alongside effectiveness, and the resulting system is to be evaluated on
+further unseen queries.</p>
 
 <h2>3. Implementation details</h2>
 <p>The system is built on <strong>PyTerrier 1.1.2</strong> driving <strong>Terrier
@@ -151,7 +143,7 @@ evaluation harness.</p>
 <tr><td class="mono">{GROUP}_env.py</td><td>points JAVA_HOME at the bundled JDK before pyjnius loads the JVM</td></tr>
 <tr><td class="mono">{GROUP}_parse.py</td><td>readers for cran.all.1400, cran.qry and cranqrel</td></tr>
 <tr><td class="mono">{GROUP}_index.py</td><td>builds a Terrier index under one preprocessing variant, timed</td></tr>
-<tr><td class="mono">{GROUP}_experiments.py</td><td>the four-stage experiment plan; writes every table in this report</td></tr>
+<tr><td class="mono">{GROUP}_experiments.py</td><td>the three-stage experiment plan; writes every table in this report</td></tr>
 <tr><td class="mono">{GROUP}_search.py</td><td>runs the tuned pipeline over a query file, writes a TREC run</td></tr>
 <tr><td class="mono">{GROUP}_report.py</td><td>renders this PDF from the experiment output</td></tr>
 </table>
@@ -188,16 +180,16 @@ field. Document 240 contains exactly this, and without the rule it loses roughly
 lines of its abstract.</p>
 
 <h2>4. Plan of experiments</h2>
-<p>Four stages, each one narrowing the next: <strong>(1)</strong> preprocessing &mdash;
+<p>Three stages, each one narrowing the next: <strong>(1)</strong> preprocessing, meaning
 which fields, stemmer and stopword list to index; <strong>(2)</strong> weighting model at
-default parameters; <strong>(3)</strong> the parameters of every parametrised model;
-<strong>(4)</strong> pseudo-relevance feedback on top of the winner.</p>
-<div class="key"><p>Stages 3 and 4 tune on the <strong>odd-numbered</strong> queries (113
-of them) and report on the held-out <strong>even-numbered</strong> queries (112), as well
-as on the full set. The interleaved split is deliberate: the Cranfield queries are
-grouped by subject, so a contiguous split would tune on a different subject mix than it
-reports on. Every figure labelled <em>held-out</em> below comes from queries the tuning
-never saw, which is the honest estimate of what the unseen test queries will produce.</p></div>
+default parameters; <strong>(3)</strong> the parameters of the winning model.</p>
+<div class="key"><p>Stage 3 tunes on the <strong>odd-numbered</strong> queries (113 of
+them) and reports on the held-out <strong>even-numbered</strong> queries (112), as well as
+on the full set. The interleaved split is deliberate: the Cranfield queries are grouped by
+subject, so a contiguous split would tune on a different subject mix than it reports on.
+Tuning happens only in Stage 3, so the held-out half is the sole estimate here of what the
+unseen test queries will produce, and every figure labelled <em>held-out</em> below comes
+from queries the tuning never saw.</p></div>
 <p>Effectiveness is measured with <span class="mono">ir_measures</span>: MAP (the primary
 metric used for all selection), nDCG@10 and nDCG@20 on the graded judgements, P@5, P@10,
 recall@100 and reciprocal rank. Improvements over a baseline are accompanied by a paired
@@ -219,49 +211,34 @@ settings, each scored with untuned BM25.</p>
 <p class="caption">Table 2: weighting models at default parameters over the full 225 queries.</p>
 
 <h3>5.3 Stage 3 &mdash; parameter tuning</h3>
-<p>110 BM25 settings (<em>k</em><sub>1</sub> &times; <em>b</em>) and 44 DFR settings
-(<em>c</em>), all scored on the training half. The best of each family:</p>
-{table(per_model, ["model", "name", "AP", "nDCG@10", "P@10", "R@100"])}
-<p class="caption">Table 3: best parameter setting per model family, training queries only.</p>
-<p>Tuned against default for the winning model, on the held-out half:</p>
+<p>110 BM25 settings (<em>k</em><sub>1</sub> &times; <em>b</em>), scored on the training
+half. Tuned against default on the held-out half:</p>
 {table(tuned_held, ["name"] + METRIC_COLUMNS + SIGNIFICANCE)}
-<p class="caption">Table 4: effect of parameter tuning on the 112 held-out queries.</p>
+<p class="caption">Table 3: effect of parameter tuning on the 112 held-out queries.</p>
 {table(tuned_full, ["name"] + METRIC_COLUMNS + SIGNIFICANCE)}
-<p class="caption">Table 5: the same comparison over all 225 queries.</p>
+<p class="caption">Table 4: the same comparison over all 225 queries.</p>
 
-<h3>5.4 Stage 4 &mdash; pseudo-relevance feedback</h3>
-<p>Bo1 and KL query expansion, three feedback-document counts &times; three
-feedback-term counts, on the training half:</p>
-{table(qe_train, ["name"] + METRIC_COLUMNS, limit=9)}
-<p class="caption">Table 6: the nine best of eighteen expansion settings, training queries only.</p>
-{table(qe_held, ["name"] + METRIC_COLUMNS + SIGNIFICANCE)}
-<p class="caption">Table 7: expansion on the 112 held-out queries.</p>
-{table(qe_full, ["name"] + METRIC_COLUMNS + SIGNIFICANCE)}
-<p class="caption">Table 8: expansion over all 225 queries.</p>
-
-<h3>5.5 Final configuration and timings</h3>
+<h3>5.4 Final configuration and timings</h3>
 <table>
 <tr><th>Setting</th><th>Value</th></tr>
 <tr><td>Indexed fields</td><td>{config['fields']}</td></tr>
 <tr><td>Stemmer</td><td>{config['stemmer']}</td></tr>
 <tr><td>Stopword list</td><td>{config['stopwords']}</td></tr>
 <tr><td>Weighting model</td><td>{config['wmodel']} ({controls})</td></tr>
-<tr><td>Query expansion</td><td>{config['expansion']}</td></tr>
 <tr><td>Indexing time (1,400 documents)</td><td>{config['index_time_s']:.2f} s</td></tr>
-<tr><td>Search time, no expansion</td><td>{config['retrieval_ms_per_query']:.1f} ms / query</td></tr>
-<tr><td>Search time, with expansion</td><td>{config['retrieval_with_expansion_ms_per_query']:.1f} ms / query</td></tr>
+<tr><td>Search time</td><td>{config['retrieval_ms_per_query']:.1f} ms / query</td></tr>
 <tr><td>MAP, held-out queries</td><td>{held_final:.4f}</td></tr>
 <tr><td>MAP, all 225 queries</td><td>{final_ap:.4f}</td></tr>
 </table>
-<p class="caption">Table 9: the submitted configuration. Indexing is a single-threaded
+<p class="caption">Table 5: the submitted configuration. Indexing is a single-threaded
 in-memory build; search time is wall clock over all 225 queries divided by 225.</p>
 
 <h2>6. Discussion of results</h2>
 
 <h3>6.1 Preprocessing dominates everything else</h3>
 <p>The single largest effect in the whole study is stopword removal. The best variant
-with no stopword list reaches MAP {worst_stop['AP']:.4f}; the best with one reaches
-{best_index_row['AP']:.4f} &mdash; a gain of {pct(best_index_row['AP'], worst_stop['AP'])},
+with no stopword list reaches MAP {best_no_stopwords['AP']:.4f}; the best with one reaches
+{best_index_row['AP']:.4f}, a gain of {pct(best_index_row['AP'], best_no_stopwords['AP'])},
 larger than every model and parameter decision combined. Cranfield queries are full
 English questions ("what similarity laws must be obeyed when&hellip;"), so without a
 stopword list the query vector is dominated by terms that match almost every document.
@@ -274,58 +251,53 @@ plus abstract costs about 0.015 &mdash; small because in most Cranfield records 
 is repeated as the opening of the abstract, so the title field is nearly redundant
 already.</p>
 
-<h3>6.2 Model choice matters more than model parameters</h3>
-<p>Raw term frequency with no IDF component (MAP 0.1927) is less than two thirds as
-effective as anything that weights by term rarity, which is the expected confirmation
-that the vector space model's IDF component is doing the work. Among the properly
-weighted models the spread is narrow &mdash; TF&ndash;IDF, BM25, DFR&ndash;BM25, PL2 and
-DPH all land between 0.31 and 0.33 MAP &mdash; with In_expB2 slightly ahead.</p>
+<h3>6.2 The IDF component carries the weighting</h3>
+<p>Raw term frequency with no IDF component (MAP {tf_ap:.4f}) is well under two thirds as
+effective as anything that weights by term rarity, which confirms that the vector space
+model's IDF component is doing most of the work. Among the properly weighted models the
+spread is narrow: TF&ndash;IDF reaches {tfidf_ap:.4f} and BM25 {base_ap:.4f}, while
+LemurTF&ndash;IDF's different length normalisation costs about
+{tfidf_ap - lemur_ap:.3f}.</p>
 <p>Parameter tuning then adds remarkably little. On the held-out queries the tuned model
 gains {float(tuned_held['AP'].iloc[-1]) - float(tuned_held['AP'].iloc[0]):+.4f} MAP over
 its own default, improving {param_sig['better']} queries and degrading
-{param_sig['worse']} for a sign-test p-value of {param_sig['p']:.3f} &mdash; not
-significant. The BM25 response surface is nearly flat across the whole grid: every
-setting between <em>k</em><sub>1</sub> = 0.8 and 4.0 and <em>b</em> = 0.3 and 1.0 scores
-within about 0.01 MAP. This is worth stating plainly rather than reporting the tuned
-number alone, because the difference between the best and the default setting here is
-smaller than the noise between two random halves of the query set.</p>
+{param_sig['worse']} for a sign-test p-value of {param_sig['p']:.3f}, which is not
+significant. The response surface is shallow rather than flat: MAP varies by
+{window_spread:.3f} across the settings between <em>k</em><sub>1</sub> = 0.8 and 4.0 and
+<em>b</em> = 0.3 and 1.0, and by {grid_spread:.3f} across the full grid. The choice is
+therefore not free, but it is small next to the preprocessing effect, and the gap between
+the best and the default setting is smaller than the noise between two halves of the
+query set.</p>
 <p>One methodological note: an earlier, narrower sweep put the optimal
-<em>k</em><sub>1</sub> exactly on the boundary of the grid, which is a sign that the grid
-is too small rather than an answer. The grid reported above extends to
+<em>k</em><sub>1</sub> on the boundary of the grid, which indicates the grid is too small
+rather than giving an answer. The grid reported above extends to
 <em>k</em><sub>1</sub> = 4.0 so that the optimum is interior.</p>
 
-<h3>6.3 Query expansion is the one intervention that clearly pays</h3>
-<p>Bo1 pseudo-relevance feedback improves MAP from {held_base:.4f} to {held_final:.4f} on
-the held-out queries, {pct(held_final, held_base)}, improving {qe_sig['better']} queries
-against {qe_sig['worse']} degraded &mdash; sign-test p = {qe_sig['p']:.6f}. Unlike the
-parameter tuning, this survives on queries the tuning never saw, and it is the only
-change in the study that does so convincingly. It is also the only change with a real
-cost: expansion runs the retrieval twice and roughly triples search time, from
-{config['retrieval_ms_per_query']:.1f} ms to
-{config['retrieval_with_expansion_ms_per_query']:.1f} ms per query. At Cranfield's scale
-that is irrelevant; on a large collection it would be the deciding factor.</p>
-<p>Why it helps so much here is specific to the collection: Cranfield abstracts are short
-and the vocabulary is narrow and technical, so the top few documents for a query are
-densely packed with exactly the domain terms the query failed to mention. Feedback from
-five documents is best; ten begins to drift, three is too thin a sample.</p>
+<h3>6.3 Models excluded by the assignment</h3>
+<p>The assignment restricts the system to sparse vector space models and rules out
+advanced probabilistic and dense neural retrieval. Two families that Terrier offers are
+therefore excluded even though they are available at no extra cost: the
+Divergence-From-Randomness weighting models, and pseudo-relevance feedback, which rewrites
+the query from the terms of the top-ranked documents rather than scoring the query as
+given. Both are probabilistic rather than vector space methods. The submitted system is
+consequently tuned BM25 over the Stage 1 index, with no query rewriting.</p>
 
 <h3>6.4 Where the ceiling is</h3>
 <p>End to end, the pipeline moves MAP from {base_ap:.4f} (untuned BM25 on the winning
 index) to {final_ap:.4f} over the full query set, {pct(final_ap, base_ap)}. Recall@100
-finishes at {float(qe_full['R@100'].iloc[-1]):.4f}, so roughly a fifth of the relevant
-documents are still missed in the top 100 &mdash; and at least one of them, document 995
-for query 125, is unreachable by any lexical system because the record is empty. The
-remaining gap is mostly vocabulary mismatch that term expansion from the top five
-documents cannot bridge, which is precisely the failure mode that dense retrieval
-addresses and that this assignment excludes.</p>
+finishes at {float(tuned_full['R@100'].iloc[-1]):.4f}, so roughly a fifth of the relevant
+documents are still missed in the top 100, and at least one of them, document 995 for
+query 125, is unreachable by any lexical system because the record is empty. The
+remaining gap is largely vocabulary mismatch between the query wording and the abstract
+wording, which term weighting alone cannot bridge.</p>
 
 <h3>6.5 Threats to validity</h3>
 <p>The held-out half is 112 queries, so a MAP difference below roughly 0.01 is not
 distinguishable from noise; we have reported sign tests rather than relying on the point
 estimates. Stage 1 selected the index on the full query set before the train/test split
-was introduced in Stages 3 and 4, so the preprocessing choice is mildly optimistic &mdash;
-though with an effect that large, and a ranking that is stable across every model we
-tried, the conclusion is not in doubt.</p>
+was introduced in Stage 3, so the preprocessing choice is mildly optimistic, though the
+effect is large enough and stable enough across models that the conclusion is not in
+doubt.</p>
 
 </body></html>
 """

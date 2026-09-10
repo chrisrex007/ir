@@ -1,3 +1,5 @@
 *:Zone.Identifier
 __pycache__/
 *.zip
+.venv/
+search_ninjas_indices/

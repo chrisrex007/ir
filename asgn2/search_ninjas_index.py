@@ -53,7 +53,8 @@ def build_index(fields="all", stemmer="porter", stopwords="assignment", overwrit
     if os.path.exists(path) and not overwrite:
         return pt.IndexFactory.of(path), 0.0
     if os.path.exists(path):
-        shutil.rmtree(path)
+        # ignore_errors because on NFS a still-open index leaves .nfs* files that block rmdir.
+        shutil.rmtree(path, ignore_errors=True)
 
     if stopwords == "assignment":
         stopword_arg = load_stopwords()

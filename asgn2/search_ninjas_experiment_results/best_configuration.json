@@ -2,12 +2,11 @@
   "fields": "all",
   "stemmer": "porter",
   "stopwords": "assignment",
-  "wmodel": "In_expB2",
+  "wmodel": "BM25",
   "controls": {
-    "c": 0.5
+    "bm25.k_1": 2.5,
+    "bm25.b": 0.75
   },
-  "expansion": "Bo1(docs=5, terms=20)",
-  "index_time_s": 1.19,
-  "retrieval_ms_per_query": 6.69,
-  "retrieval_with_expansion_ms_per_query": 22.15
+  "index_time_s": 0.99,
+  "retrieval_ms_per_query": 6.23
 }

@@ -9,6 +9,7 @@ import warnings
 
 import joblib
 import numpy as np
+from sklearn.base import clone
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
@@ -22,11 +23,25 @@ from search_ninjas_group import GROUP_DETAILS
 BASE = Path(__file__).resolve().parent
 DEFAULT_OUTPUT = BASE / 'search_ninjas_artifacts'
 CUTOFFS = (5, 10, 20, 50, 100)
+ALPHAS = (.00001, .0001, .001, .01, .1, 1.0, 10.0, 100.0)
 
 
 def ranking(scores):
     """Collection order is numeric docid order: stable ties prefer lower docid."""
     return np.argsort(-np.asarray(scores), kind='stable')
+
+
+def hybrid_scores(zone_scores, bm25_scores):
+    """Ordinal scores: zone first, BM25 within ties, then numeric document ID.
+
+    Round zone scores to 12 places to remove floating-point addition artifacts.
+    Output scores encode rank only, not a weighted sum of zone and BM25 scores.
+    """
+    order = np.lexsort((np.arange(len(zone_scores)), -np.asarray(bm25_scores),
+                        -np.round(zone_scores, 12)))
+    scores = np.empty(len(order), dtype=float)
+    scores[order] = np.arange(len(order), 0, -1)
+    return scores
 
 
 def metrics(scores, labels, k):
@@ -112,7 +127,7 @@ def train(args):
     if len(np.unique(train_y)) != 2:
         raise ValueError('SVM training needs both relevant and nonrelevant pairs')
     best_validation, best_model, best_alpha, svm_trials = -1, None, None, []
-    for alpha in (.00001, .0001, .001, .01):
+    for alpha in ALPHAS:
         model = make_pipeline(StandardScaler(), SGDClassifier(
             loss='hinge', penalty='l2', alpha=alpha, class_weight='balanced',
             average=True, max_iter=2000, tol=1e-4, n_iter_no_change=10,
@@ -133,6 +148,16 @@ def train(args):
         'equal_zone': zones.mean(2),
         'body_bm25': features[:, :, -1],
     }
+    scores['zone_bm25_tiebreak'] = np.stack([
+        hybrid_scores(z, b) for z, b in zip(scores['zone'], scores['body_bm25'])])
+    zone_diagnostics = {
+        'best_weight_tuples': sum(abs(r['train_f1_at_10'] - best_score) < 1e-12 for r in zone_trials),
+        'body_match_fraction': float(zones[:, :, 3].mean()),
+        'mean_distinct_scores': float(np.mean([len(np.unique(np.round(z, 12))) for z in scores['zone']])),
+        'first_test_qid': queries[split['test'][0]]['qid'],
+        'first_test_top_ties': int(np.sum(np.isclose(scores['zone'][split['test'][0]], scores['zone'][split['test'][0]].max(), rtol=0, atol=1e-12))),
+    }
+    save_json(args.output / 'search_ninjas_zone_diagnostics.json', zone_diagnostics)
     rows, aggregate = [], []
     for method, values in scores.items():
         for partition, indices in split.items():
@@ -144,7 +169,7 @@ def train(args):
                 for i, result in zip(indices, measured):
                     rows.append({'method': method, 'split': partition, 'k': k,
                                  'qid': queries[i]['qid'], **result})
-        if method in ('zone', 'svm'):
+        if method in ('zone', 'svm', 'zone_bm25_tiebreak'):
             for key, suffix in (('qid', 'seqid'), ('original_id', 'labels')):
                 write_run(args.output / f'search_ninjas_{method}_test_{suffix}.txt', values,
                           queries, collection.docnos, split['test'], 100, key)
@@ -166,10 +191,41 @@ def train(args):
         'inputs_sha256': {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
                           for p in (args.documents, args.queries, args.qrels)},
         'group': GROUP_DETAILS,
+        'alpha_grid': list(ALPHAS),
+        'role': 'evaluation',
+        'fit_qids': [queries[i]['qid'] for i in split['train']],
+        'revision_note': 'Expanded validation search and exploratory tie-break experiment after inspection of the original test results; this is not a fresh untouched test evaluation.',
     }
     save_json(args.output / 'search_ninjas_metadata.json', metadata)
     joblib.dump({'collection': collection, 'zone_weights': best_weights,
                  'svm': best_model, 'metadata': metadata}, args.output / 'search_ninjas_model.joblib')
+    # A separate deployment bundle; neither its weights nor its predictions are
+    # substituted into the evaluation metrics above.
+    final_ids = np.sort(np.concatenate((split['train'], split['validation'])))
+    final_model = clone(best_model)
+    with warnings.catch_warnings():
+        warnings.simplefilter('error', ConvergenceWarning)
+        final_model.fit(features[final_ids].reshape(-1, 88), labels[final_ids].ravel())
+    final_best, final_weights = -1, None
+    for weights in grid_weights():
+        value = mean_f1(zones @ weights, labels, final_ids)
+        if value > final_best:
+            final_best, final_weights = value, weights
+    final_metadata = {
+        'role': 'deployment', 'group': GROUP_DETAILS, 'seed': args.seed,
+        'fit_qids': [queries[i]['qid'] for i in final_ids],
+        'excluded_test_qids': [queries[i]['qid'] for i in split['test']],
+        'train_pairs': int(len(final_ids) * len(documents)),
+        'svm_alpha': best_alpha,
+        'svm_epochs': int(final_model.steps[1][1].n_iter_),
+        'zone_weights': dict(zip(FIELDS, final_weights.tolist())),
+        'inputs_sha256': metadata['inputs_sha256'],
+        'evaluation': 'No reported test metrics belong to this refitted model.',
+    }
+    save_json(args.output / 'search_ninjas_final_metadata.json', final_metadata)
+    joblib.dump({'collection': collection, 'zone_weights': final_weights,
+                 'svm': final_model, 'metadata': final_metadata},
+                args.output / 'search_ninjas_final_model.joblib')
     for row in aggregate:
         if row['split'] == 'test' and row['k'] == 10:
             print(row)
@@ -207,7 +263,7 @@ def main():
     training.add_argument('--seed', type=int, default=42)
     training.set_defaults(function=train)
     prediction = sub.add_parser('predict', help='rank unseen queries without relevance judgments')
-    prediction.add_argument('--model', type=Path, default=DEFAULT_OUTPUT / 'search_ninjas_model.joblib')
+    prediction.add_argument('--model', type=Path, default=DEFAULT_OUTPUT / 'search_ninjas_final_model.joblib')
     prediction.add_argument('--queries', type=Path, required=True)
     prediction.add_argument('--output', type=Path, default=DEFAULT_OUTPUT / 'predictions')
     prediction.add_argument('--top-k', type=int, default=100)

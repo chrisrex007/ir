@@ -61,7 +61,7 @@ def read_queries(path):
 
 
 def read_qrels(path):
-    """Codes 1..4 are relevant; -1 markers and code 5 are not relevant."""
+    """Codes 1..4 are relevant; code -1 and code 5 are nonrelevant."""
     relevant = {}
     for line in Path(path).read_text().splitlines():
         if not line.strip():

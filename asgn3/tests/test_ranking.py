@@ -4,7 +4,7 @@ import unittest
 import numpy as np
 from search_ninjas_data import FIELDS, read_documents, read_queries, read_qrels
 from search_ninjas_features import Collection, feature_names
-from search_ninjas_rank import grid_weights, metrics, ranking, split_queries, write_run
+from search_ninjas_rank import hybrid_scores, grid_weights, metrics, ranking, split_queries, write_run
 
 
 class RankingTests(unittest.TestCase):
@@ -62,6 +62,11 @@ class RankingTests(unittest.TestCase):
         self.assertEqual(queries[2]['qid'], '3')
         self.assertEqual([d['docno'] for d in documents if not any(d[f].strip() for f in FIELDS)],
                          ['471', '995'])
+
+    def test_hybrid_preserves_zone_priority_and_breaks_only_ties(self):
+        scores = hybrid_scores(np.array([.1+.2, .3, .4, .3]), np.array([5, 9, 0, 9]))
+        np.testing.assert_array_equal(ranking(scores), [2, 1, 3, 0])
+        self.assertEqual(len(set(scores)), 4)
 
     def test_metrics_and_ties(self):
         scores = np.array([2, 2, 1, 0])

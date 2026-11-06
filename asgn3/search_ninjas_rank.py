@@ -17,6 +17,7 @@ from threadpoolctl import threadpool_limits
 
 from search_ninjas_data import FIELDS, read_documents, read_queries, read_qrels
 from search_ninjas_features import Collection, feature_names
+from search_ninjas_group import GROUP_DETAILS
 
 BASE = Path(__file__).resolve().parent
 DEFAULT_OUTPUT = BASE / 'search_ninjas_artifacts'
@@ -164,7 +165,7 @@ def train(args):
         'feature_seconds': feature_seconds, 'total_seconds': time.perf_counter() - started,
         'inputs_sha256': {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
                           for p in (args.documents, args.queries, args.qrels)},
-        'group': args.group,
+        'group': GROUP_DETAILS,
     }
     save_json(args.output / 'search_ninjas_metadata.json', metadata)
     joblib.dump({'collection': collection, 'zone_weights': best_weights,
@@ -204,7 +205,6 @@ def main():
     training.add_argument('--qrels', type=Path, default=BASE / 'cranqrel')
     training.add_argument('--output', type=Path, default=DEFAULT_OUTPUT)
     training.add_argument('--seed', type=int, default=42)
-    training.add_argument('--group', default='search_ninjas; Krish Charniya (student ID not listed in PA2 report)')
     training.set_defaults(function=train)
     prediction = sub.add_parser('predict', help='rank unseen queries without relevance judgments')
     prediction.add_argument('--model', type=Path, default=DEFAULT_OUTPUT / 'search_ninjas_model.joblib')

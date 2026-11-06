@@ -13,11 +13,9 @@ python3 -m venv .venv
 .venv/bin/python search_ninjas_rank.py train
 ```
 
-Training runs both methods, evaluation, baselines, and report generation. Pass
-`--group 'Group name; member names and student IDs'` to populate the report.
-The default group details are `search_ninjas; Krish Charniya`, taken from the
-assignment 2 report. That PDF contains no student ID; the missing ID is explicitly
-marked in this report. Use `--group` to supply the complete details.
+Training runs both methods, evaluation, baselines, and report generation.
+The report always uses `search_ninjas` and the five members' names and student IDs
+recorded in `search_ninjas_group.py`.
 Use `--output PATH` to keep multiple experimental runs.
 
 ```sh
@@ -70,5 +68,4 @@ Regenerate the PDF from existing results with:
 .venv/bin/python search_ninjas_report.py
 ```
 
-The report uses the member name from the assignment 2 PDF and does not invent a student ID. The implementation
-does not submit or upload anything to Moodle.
+The implementation does not submit or upload anything to Moodle.

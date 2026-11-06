@@ -10,6 +10,7 @@ from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from search_ninjas_group import GROUP_DETAILS
 
 
 def generate_report(root):
@@ -48,8 +49,8 @@ def generate_report(root):
     def page():
         story.append(PageBreak())
     heading('Programming Assignment III: Learning to Rank')
-    paragraph('Group: ' + metadata['group'])
-    paragraph('This report is generated from a completed experiment. Group details are recorded for this run; any missing student IDs should be supplied before submission.')
+    paragraph('Group: ' + GROUP_DETAILS)
+    paragraph('This report is generated from a completed experiment.')
     paragraph('The task is ranked retrieval on Cranfield using (A) learned Boolean zone weights and (B) a linear support vector machine. Both return an ordered document list. Precision, recall, and F1 measure binary relevance at fixed cutoffs.')
     paragraph(f"The collection contains {metadata['documents']} documents and {metadata['queries']} queries. The deterministic split uses seed {metadata['seed']}: {metadata['split_sizes']}. No test labels are used to choose weights, preprocessing, or hyperparameters.")
     paragraph('The SVM is a pointwise binary relevance classifier whose signed decision function is used as a ranking score. It is not a pairwise RankSVM. This interpretation follows the brief’s instruction to learn linear weights from query-document features and relevance judgments.')
@@ -119,7 +120,7 @@ def generate_report(root):
     paragraph('Zone scoring discards term frequency and document length, so many ties are inevitable. The SVM can use richer features but optimizes a classification loss rather than the ranked-list F1 objective. Correlated features, incomplete relevance judgments, a small query set, and the chosen preprocessing constrain generalization. A learned model need not outperform BM25.')
     paragraph('Empty documents cannot obtain lexical evidence even when judged relevant. Queries reduced to no known terms receive deterministic rankings with little or no evidence; these are not silently omitted. The fixed corpus and collection statistics are stored with the model so unseen query files use exactly the training feature definitions.')
     paragraph(f"Recorded feature extraction time: {metadata['feature_seconds']:.2f} seconds. Recorded training/evaluation time before serialization and PDF generation: {metadata['total_seconds']:.2f} seconds. Timings depend on the machine and exclude dependency installation.")
-    paragraph('Reproduce from asgn3: python3 -m venv .venv; .venv/bin/pip install -r requirements.txt; .venv/bin/python -m unittest discover -s tests -v; .venv/bin/python search_ninjas_rank.py train. Supply --group with actual member names and IDs for the submission report.')
+    paragraph('Reproduce from asgn3: python3 -m venv .venv; .venv/bin/pip install -r requirements.txt; .venv/bin/python -m unittest discover -s tests -v; .venv/bin/python search_ninjas_rank.py train.')
     paragraph('For additional queries: .venv/bin/python search_ninjas_rank.py predict --queries your_queries.qry. The query file uses .I labels and .W text. Prediction does not load relevance judgments. Original-label and position-ID outputs are written separately in six-column TREC format: qid Q0 docno rank score search_ninjas.')
     paragraph('Deliverables include the Python programs, dependency pins, split and configuration JSON, weight and metric tables, two held-out result lists per model, a serialized model, and this PDF. Artifacts are generated under search_ninjas_artifacts, which is ignored by Git. Archive that directory explicitly when preparing a submission. Load only trusted joblib model files because their deserialization can execute code.')
     paragraph('References: supplied PA3 assignment brief; supplied cranqrel.readme for relevance codes; scikit-learn documentation for StandardScaler and SGDClassifier; the standard BM25 weighting formula. No earlier-assignment code is imported.')
@@ -128,7 +129,7 @@ def generate_report(root):
         canvas.drawRightString(7.5*inch, .4*inch, f'search_ninjas | {doc.page}')
     SimpleDocTemplate(str(root / 'search_ninjas_report.pdf'),
                       title='Programming Assignment III: Learning to Rank',
-                      author=metadata['group'],
+                      author=GROUP_DETAILS,
                       topMargin=.6*inch, bottomMargin=.6*inch).build(
                           story, onFirstPage=footer, onLaterPages=footer)
 

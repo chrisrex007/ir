@@ -1,121 +1,110 @@
-# Assignment 3: Learning to Rank
+# Programming Assignment III: Learning to Rank
 
-Standalone implementation of the uploaded PA3 brief. Python 3.12; no Java or prior
-assignment modules required. Inputs are the supplied `PA3.pdf` and Cranfield files.
+**Group:** search_ninjas
 
-## Run
+**Collection:** Cranfield (1,400 documents; 225 queries)
 
-```sh
-git clone https://github.com/chrisrex007/ir.git
-cd ir/asgn3
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-.venv/bin/python -m unittest discover -s tests -v
+**Language:** Python 3.12
+
+This assignment compares weighted Boolean zone scoring with a linear support
+vector machine for document ranking. The code trains both methods, evaluates
+them on a fixed query split, and produces TREC-format ranking files and a PDF
+report. The five members' names and roll numbers are in
+`search_ninjas_group.py` and on the report's first page.
+
+## Setup and evaluation
+
+Run these commands from the `asgn3` directory:
+
+```bash
+python3.12 -m venv .venv
+.venv/bin/python -m ensurepip --upgrade
+.venv/bin/python -m pip install -r requirements.txt
 .venv/bin/python search_ninjas_rank.py train
 ```
 
-For an existing checkout, start in `ir/asgn3` and omit the clone command.
-For the extracted submission archive, start in its directory and omit both the
-clone and `cd` commands. Python 3.12 is the tested interpreter version.
+Training reads `cran.all.1400`, `cran.qry`, and `cranqrel`. It creates the
+`search_ninjas_artifacts` directory containing the learned models, test-query
+rankings, evaluation tables, and `search_ninjas_report.pdf`. The split is
+reproducible (seed 42: 135 training, 45 validation, and 45 test queries).
 
-Training runs both methods, evaluation, baselines, and report generation.
-The report always uses `search_ninjas` and the five members' names and student IDs
-recorded in `search_ninjas_group.py`.
-Use `--output PATH` to keep multiple experimental runs.
+To run the project tests and check the exported evaluation results:
 
-```sh
-.venv/bin/python search_ninjas_rank.py predict --queries your_queries.qry
-```
-
-Prediction defaults to the separately refitted final model, requires no judgments, and scores all 1,400
-documents for each query. Query files use `.I <label>` followed by `.W` and text.
-`--top-k` defaults to 100. Ties use ascending numeric document ID. Empty/OOV queries
-are retained with deterministic rankings, although they have no lexical evidence.
-Only load trusted joblib files.
-
-## Methods and experimental plan
-
-1. Parse title, author, bibliography, body; lowercase alphanumeric tokenization,
-   scikit-learn English stopwords, no stemming. Preserve empty documents and stray
-   tags inside abstracts.
-2. Split queries 135/45/45 into training/validation/test using seed 42. Qrels use
-   **query positions**, not the non-contiguous original `.I` labels. Codes 1–4 are
-   relevant; -1, code 5, and unjudged pairs are treated as nonrelevant in both
-   training and evaluation. There are 1,612 positive judgments among 1,837 rows.
-   This follows the [ir_datasets convention](https://github.com/allenai/ir_datasets/blob/master/ir_datasets/datasets/cranfield.py),
-   which calls -1 “References of no interest.”
-3. **A (`zone`):** Average Boolean presence over distinct query terms in each
-   field (zero for empty queries), then combine fields with learned weights.
-   This is a per-term extension of Boolean weighted zone scoring. Retain the
-   original any-term OR method as `zone_or`, learning its weights independently.
-   For each method search the same 286 nonnegative weight tuples summing to one
-   at increments of 0.1, selected using training macro F1@10. `equal_zone` is the
-   mean of the new per-field fractions.
-4. **B:** Compute the brief's 22 features per field (88 total). Train a pointwise
-   hinge-loss linear SVM (SGDClassifier, averaged coefficients) with balanced classes on all training query-document pairs. Scale
-   using training pairs only; select L2 alpha from .00001/.0001/.001/.01/.1/1/10/100 on validation F1@10.
-   Retain the evaluation model without refitting. A separate final model is refit
-   on train+validation for `predict`. Rank by signed decision score.
-5. Evaluate on held-out queries at k=5,10,20,50,100. Report macro precision,
-   recall and per-query F1 averages. Compare equal-zone and body BM25 baselines.
-
-The feature definitions, formulas, assumptions, coefficients, observed results,
-limitations, and reproduction instructions appear in the generated PDF. Corpus
-statistics use all documents, but relevance labels are isolated by query split.
-This evaluates new queries against a fixed document collection.
-
-## Outputs
-
-`search_ninjas_artifacts/` contains the model, split/metadata JSON (including input
-hashes), tuning CSVs, all 88 SVM weights, aggregate/per-query metrics, held-out TREC
-runs, and `search_ninjas_report.pdf`. These generated artifacts are tracked by Git.
-
-Runs ending `_seqid.txt` use positional IDs for Cranfield judgments. Runs ending
-`_labels.txt` preserve the query file labels. Each line has six columns:
-`qid Q0 docno rank score search_ninjas`. Training writes only held-out test query
-runs; `predict` writes runs for every query in the supplied file.
-
-Regenerate the PDF from existing results with:
-
-```sh
-.venv/bin/python search_ninjas_report.py
-```
-
-The implementation does not submit or upload anything to Moodle.
-
-## Revised experiments and final model
-
-This revision follows inspection of the original test results. Alpha selection
-still uses validation F1@10 only, but the revised test results are not a fresh,
-previously untouched evaluation. No statistical superiority is claimed.
-
-The change from whole-field OR to per-term Boolean presence was also made after
-inspecting earlier test results. Both `zone` and `zone_or` have independent grid
-CSVs and diagnostics JSON files recording tied optima, distinct scores and top
-ties. The SVM's 88 features are unchanged. No real-valued tie-breaker is used.
-
-`search_ninjas_model.joblib` is the evaluation model trained on 135 queries.
-`search_ninjas_final_model.joblib` refits the scaler and SVM on 180 train+validation
-queries at the selected alpha, and relearns zone weights on those queries.
-The 45 test queries remain excluded. Reported metrics belong only to the evaluation
-model. Both bundles have separate metadata describing their fitting queries
-and `zone_scoring=term_presence_fraction_v1`. Older bundles are rejected by
-`predict`; regenerate both models with `train` after upgrading.
-
-To reproduce evaluation-model predictions, supply:
-
-```sh
-.venv/bin/python search_ninjas_rank.py predict --queries your_queries.qry --model search_ninjas_artifacts/search_ninjas_model.joblib --output evaluation_predictions
-```
-
-After training, independently verify all exported test runs and build a submission:
-
-```sh
+```bash
+.venv/bin/python -m unittest discover -s tests -v
 .venv/bin/python search_ninjas_verify.py
+```
+
+The tests and verifier are included in the repository but are not needed to
+run the submitted ranking programs.
+
+## Ranking new queries
+
+The submission includes `search_ninjas_final_model.joblib`, fitted on the
+training and validation queries. To rank a different query file:
+
+```bash
+.venv/bin/python search_ninjas_rank.py predict --queries new_queries.qry
+```
+
+Query files follow the Cranfield convention:
+
+```text
+.I 001
+.W
+aerodynamic wing pressure
+.I 002
+.W
+boundary layer viscosity
+```
+
+The command creates `search_ninjas_artifacts/predictions/` with zone and SVM
+rankings. Each method has a `_seqid.txt` file (sequential query numbers) and a
+`_labels.txt` file (the identifiers appearing after `.I`). By default, the
+top 100 documents are returned per query. Use `--top-k` to change the cutoff,
+or `--output` to select another directory. No relevance judgments are needed
+for prediction.
+
+Every result line follows `query-id Q0 document-id rank score search_ninjas`.
+The score column contains the model's ranking score. The program resolves
+equal scores by increasing numeric document ID when writing its result files.
+
+## Methods
+
+**Method A - weighted zones.** Each field (title, author, bibliography, body)
+receives the fraction of distinct query terms present in it. The four
+nonnegative field weights sum to one and are selected by an exhaustive
+0.1-step grid search on training F1@10. This is a per-term Boolean extension
+of whole-field zone matching; the original any-term OR variant is retained as
+the `zone_or` baseline. Scores are calculated from the weighted field values;
+the original whole-field OR method is kept for comparison.
+
+**Method B - linear SVM.** The program computes the specified 22 retrieval
+features for each of the four fields (88 features in total). A linear
+hinge-loss SVM is fitted to query-document relevance labels; its decision
+function ranks documents. Regularization is selected on validation F1@10.
+The body-only BM25 and equally weighted zone methods provide additional
+baselines.
+
+All methods share lowercase alphanumeric tokenization and English stopword
+removal. Codes 1-4 in `cranqrel` are treated as relevant; code -1 and
+unjudged pairs are treated as nonrelevant. The evaluation reports macro-
+averaged precision, recall, and per-query F1 at cutoffs 5, 10, 20, 50, and
+100. Details, measured results, and limitations are in the PDF report.
+
+The SVM regularization search and the per-term zone definition were refined
+after an earlier examination of test results. Therefore the reported test
+split should not be treated as a fully untouched final evaluation.
+
+## Submission
+
+The compact archive `search_ninjas_submission.zip` is generated with:
+
+```bash
 .venv/bin/python search_ninjas_package.py
 ```
 
-The archive is `search_ninjas_submission.zip` in this directory. It includes source,
-tests, pinned requirements, inputs, PDF, ranking files, and both models. It excludes
-the virtual environment and includes a SHA-256 manifest. No submission is uploaded
-automatically. On Windows, use `.venv\Scripts\python.exe` instead of `.venv/bin/python`.
+It contains the executable programs, required inputs, the final model,
+machine-readable test results, and the PDF report. Training produces more
+diagnostic files than are necessary for grading; those remain outside the
+archive. Only load `.joblib` models from a trusted source.

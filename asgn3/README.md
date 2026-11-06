@@ -14,6 +14,10 @@ python3 -m venv .venv
 .venv/bin/python search_ninjas_rank.py train
 ```
 
+For an existing checkout, start in `ir/asgn3` and omit the clone command.
+For the extracted submission archive, start in its directory and omit both the
+clone and `cd` commands. Python 3.12 is the tested interpreter version.
+
 Training runs both methods, evaluation, baselines, and report generation.
 The report always uses `search_ninjas` and the five members' names and student IDs
 recorded in `search_ninjas_group.py`.

@@ -98,10 +98,10 @@
     "body.bm25"
   ],
   "zone_weights": {
-    "title": 0.1,
-    "author": 0.0,
-    "bibliography": 0.1,
-    "body": 0.8
+    "title": 0.4,
+    "author": 0.1,
+    "bibliography": 0.2,
+    "body": 0.3
   },
   "svm_alpha": 1.0,
   "svm_epochs": 13,
@@ -109,8 +109,8 @@
   "raw_intercept": -1.418240826006742,
   "train_positive_pairs": 1021,
   "train_pairs": 189000,
-  "feature_seconds": 2.1944648099999995,
-  "total_seconds": 33.96579071499991,
+  "feature_seconds": 2.0786024710000675,
+  "total_seconds": 35.78799038000034,
   "inputs_sha256": {
     "cran.all.1400": "b234544b6ceccd131520df4a3cb6d42aee6576eb577933d047e722bbfe7b0b09",
     "cran.qry": "99578ceb88941ef89c14faf7c63c23776a376d8fba319b990f01d0c601d8b03f",
@@ -127,6 +127,13 @@
     10.0,
     100.0
   ],
+  "zone_scoring": "term_presence_fraction_v1",
+  "zone_or_weights": {
+    "title": 0.1,
+    "author": 0.0,
+    "bibliography": 0.1,
+    "body": 0.8
+  },
   "role": "evaluation",
   "fit_qids": [
     "1",
@@ -265,5 +272,5 @@
     "224",
     "225"
   ],
-  "revision_note": "Expanded validation search and exploratory tie-break experiment after inspection of the original test results; this is not a fresh untouched test evaluation."
+  "revision_note": "Expanded validation search and changed zone scoring from field-level OR to averaged per-term Boolean presence after inspection of earlier test results. The original learned OR method remains a baseline. This is not a fresh untouched test evaluation."
 }

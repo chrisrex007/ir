@@ -4,7 +4,7 @@ import unittest
 import numpy as np
 from search_ninjas_data import FIELDS, read_documents, read_queries, read_qrels
 from search_ninjas_features import Collection, feature_names
-from search_ninjas_rank import hybrid_scores, grid_weights, metrics, ranking, split_queries, write_run
+from search_ninjas_rank import validate_model, grid_weights, metrics, ranking, split_queries, write_run
 
 
 class RankingTests(unittest.TestCase):
@@ -42,7 +42,7 @@ class RankingTests(unittest.TestCase):
         self.assertAlmostEqual(float(x[0, 14]), 2*idf, places=5)
         expected_bm = np.log(2) * 2 * 2.2 / (2+1.2*(.25+.75*3/2))
         self.assertAlmostEqual(float(x[0, 21]), expected_bm, places=5)
-        self.assertEqual(zones.tolist(), [[1,0,0,0], [0,0,0,0]])
+        self.assertEqual(zones.tolist(), [[.5,0,0,0], [0,0,0,0]])
         empty, z = collection.features('the and')
         self.assertTrue(np.isfinite(empty).all())
         self.assertEqual(z.sum(), 0)
@@ -63,10 +63,18 @@ class RankingTests(unittest.TestCase):
         self.assertEqual([d['docno'] for d in documents if not any(d[f].strip() for f in FIELDS)],
                          ['471', '995'])
 
-    def test_hybrid_preserves_zone_priority_and_breaks_only_ties(self):
-        scores = hybrid_scores(np.array([.1+.2, .3, .4, .3]), np.array([5, 9, 0, 9]))
-        np.testing.assert_array_equal(ranking(scores), [2, 1, 3, 0])
-        self.assertEqual(len(set(scores)), 4)
+    def test_zone_distinguishes_term_coverage(self):
+        docs = [{'docno': str(i+1), **{f: '' for f in FIELDS}} for i in range(2)]
+        docs[0]['title'], docs[1]['title'] = 'wing wing', 'wing flow'
+        features, zones = Collection(docs).features('wing flow missing')
+        np.testing.assert_allclose(zones[:, 0], [1/3, 2/3])
+        np.testing.assert_array_equal(features[:, 19], [1, 1])
+        np.testing.assert_array_equal(zones, features[:, 1::22])
+
+    def test_legacy_zone_model_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, 'regenerate both models'):
+            validate_model({'metadata': {'role': 'deployment'}})
+        validate_model({'metadata': {'zone_scoring': 'term_presence_fraction_v1'}})
 
     def test_metrics_and_ties(self):
         scores = np.array([2, 2, 1, 0])

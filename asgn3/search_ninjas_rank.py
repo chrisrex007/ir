@@ -31,17 +31,12 @@ def ranking(scores):
     return np.argsort(-np.asarray(scores), kind='stable')
 
 
-def hybrid_scores(zone_scores, bm25_scores):
-    """Ordinal scores: zone first, BM25 within ties, then numeric document ID.
+ZONE_SCORING = 'term_presence_fraction_v1'
 
-    Round zone scores to 12 places to remove floating-point addition artifacts.
-    Output scores encode rank only, not a weighted sum of zone and BM25 scores.
-    """
-    order = np.lexsort((np.arange(len(zone_scores)), -np.asarray(bm25_scores),
-                        -np.round(zone_scores, 12)))
-    scores = np.empty(len(order), dtype=float)
-    scores[order] = np.arange(len(order), 0, -1)
-    return scores
+
+def validate_model(bundle):
+    if bundle.get('metadata', {}).get('zone_scoring') != ZONE_SCORING:
+        raise ValueError('Incompatible zone scoring version; rerun train to regenerate both models.')
 
 
 def metrics(scores, labels, k):
@@ -114,14 +109,20 @@ def train(args):
     zones = np.stack([z for _, z in extracted])
     del extracted
     feature_seconds = time.perf_counter() - started
-    best_score, best_weights, zone_trials = -1, None, []
-    for weights in grid_weights():
-        score = mean_f1(zones @ weights, labels, split['train'])
-        zone_trials.append(dict(zip(FIELDS, weights.tolist()), train_f1_at_10=score))
-        if score > best_score:
-            best_score, best_weights = score, weights
-    save_csv(args.output / 'search_ninjas_zone_grid.csv', zone_trials)
-    print(f'Zone weights: {best_weights.tolist()}, train F1@10={best_score:.4f}', flush=True)
+    # Existing Boolean SVM features retain the original OR indicator per field.
+    or_zones = features[:, :, 19::22]
+    zone_fits = {}
+    for name, values in (('zone', zones), ('zone_or', or_zones)):
+        best_score, best_weights, trials = -1, None, []
+        for weights in grid_weights():
+            score = mean_f1(values @ weights, labels, split['train'])
+            trials.append(dict(zip(FIELDS, weights.tolist()), train_f1_at_10=score))
+            if score > best_score:
+                best_score, best_weights = score, weights
+        zone_fits[name] = (best_weights, best_score, trials)
+        save_csv(args.output / f'search_ninjas_{name}_grid.csv', trials)
+        print(f'{name} weights: {best_weights.tolist()}, train F1@10={best_score:.4f}', flush=True)
+    best_weights = zone_fits['zone'][0]
     train_x = features[split['train']].reshape(-1, features.shape[-1])
     train_y = labels[split['train']].ravel()
     if len(np.unique(train_y)) != 2:
@@ -144,20 +145,22 @@ def train(args):
     save_csv(args.output / 'search_ninjas_svm_grid.csv', svm_trials)
     scores = {
         'zone': zones @ best_weights,
+        'zone_or': or_zones @ zone_fits['zone_or'][0],
         'svm': best_model.decision_function(features.reshape(-1, 88)).reshape(labels.shape),
         'equal_zone': zones.mean(2),
         'body_bm25': features[:, :, -1],
     }
-    scores['zone_bm25_tiebreak'] = np.stack([
-        hybrid_scores(z, b) for z, b in zip(scores['zone'], scores['body_bm25'])])
-    zone_diagnostics = {
-        'best_weight_tuples': sum(abs(r['train_f1_at_10'] - best_score) < 1e-12 for r in zone_trials),
-        'body_match_fraction': float(zones[:, :, 3].mean()),
-        'mean_distinct_scores': float(np.mean([len(np.unique(np.round(z, 12))) for z in scores['zone']])),
-        'first_test_qid': queries[split['test'][0]]['qid'],
-        'first_test_top_ties': int(np.sum(np.isclose(scores['zone'][split['test'][0]], scores['zone'][split['test'][0]].max(), rtol=0, atol=1e-12))),
-    }
-    save_json(args.output / 'search_ninjas_zone_diagnostics.json', zone_diagnostics)
+    for name, values in (('zone', zones), ('zone_or', or_zones)):
+        _, best_score, trials = zone_fits[name]
+        zone_diagnostics = {
+            'method': name,
+            'best_weight_tuples': sum(abs(r['train_f1_at_10'] - best_score) < 1e-12 for r in trials),
+            'body_match_fraction': float((values[:, :, 3] > 0).mean()),
+            'mean_distinct_scores': float(np.mean([len(np.unique(np.round(z, 12))) for z in scores[name]])),
+            'first_test_qid': queries[split['test'][0]]['qid'],
+            'first_test_top_ties': int(np.sum(np.isclose(scores[name][split['test'][0]], scores[name][split['test'][0]].max(), rtol=0, atol=1e-12))),
+        }
+        save_json(args.output / f'search_ninjas_{name}_diagnostics.json', zone_diagnostics)
     rows, aggregate = [], []
     for method, values in scores.items():
         for partition, indices in split.items():
@@ -169,7 +172,7 @@ def train(args):
                 for i, result in zip(indices, measured):
                     rows.append({'method': method, 'split': partition, 'k': k,
                                  'qid': queries[i]['qid'], **result})
-        if method in ('zone', 'svm', 'zone_bm25_tiebreak'):
+        if method in ('zone', 'svm', 'zone_or'):
             for key, suffix in (('qid', 'seqid'), ('original_id', 'labels')):
                 write_run(args.output / f'search_ninjas_{method}_test_{suffix}.txt', values,
                           queries, collection.docnos, split['test'], 100, key)
@@ -192,9 +195,11 @@ def train(args):
                           for p in (args.documents, args.queries, args.qrels)},
         'group': GROUP_DETAILS,
         'alpha_grid': list(ALPHAS),
+        'zone_scoring': ZONE_SCORING,
+        'zone_or_weights': dict(zip(FIELDS, zone_fits['zone_or'][0].tolist())),
         'role': 'evaluation',
         'fit_qids': [queries[i]['qid'] for i in split['train']],
-        'revision_note': 'Expanded validation search and exploratory tie-break experiment after inspection of the original test results; this is not a fresh untouched test evaluation.',
+        'revision_note': 'Expanded validation search and changed zone scoring from field-level OR to averaged per-term Boolean presence after inspection of earlier test results. The original learned OR method remains a baseline. This is not a fresh untouched test evaluation.',
     }
     save_json(args.output / 'search_ninjas_metadata.json', metadata)
     joblib.dump({'collection': collection, 'zone_weights': best_weights,
@@ -213,6 +218,7 @@ def train(args):
             final_best, final_weights = value, weights
     final_metadata = {
         'role': 'deployment', 'group': GROUP_DETAILS, 'seed': args.seed,
+        'zone_scoring': ZONE_SCORING,
         'fit_qids': [queries[i]['qid'] for i in final_ids],
         'excluded_test_qids': [queries[i]['qid'] for i in split['test']],
         'train_pairs': int(len(final_ids) * len(documents)),
@@ -237,6 +243,7 @@ def train(args):
 def predict(args):
     # joblib uses pickle: load only a model produced locally or from a trusted source.
     bundle = joblib.load(args.model)
+    validate_model(bundle)
     queries = read_queries(args.queries)
     collection = bundle['collection']
     args.output.mkdir(parents=True, exist_ok=True)

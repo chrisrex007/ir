@@ -44,12 +44,18 @@ Only load trusted joblib files.
    training and evaluation. There are 1,612 positive judgments among 1,837 rows.
    This follows the [ir_datasets convention](https://github.com/allenai/ir_datasets/blob/master/ir_datasets/datasets/cranfield.py),
    which calls -1 “References of no interest.”
-3. **A:** Boolean OR match per field. Search the 286 nonnegative weight tuples
-   summing to one at increments of 0.1. Select using training macro F1@10.
+3. **A (`zone`):** Average Boolean presence over distinct query terms in each
+   field (zero for empty queries), then combine fields with learned weights.
+   This is a per-term extension of Boolean weighted zone scoring. Retain the
+   original any-term OR method as `zone_or`, learning its weights independently.
+   For each method search the same 286 nonnegative weight tuples summing to one
+   at increments of 0.1, selected using training macro F1@10. `equal_zone` is the
+   mean of the new per-field fractions.
 4. **B:** Compute the brief's 22 features per field (88 total). Train a pointwise
    hinge-loss linear SVM (SGDClassifier, averaged coefficients) with balanced classes on all training query-document pairs. Scale
    using training pairs only; select L2 alpha from .00001/.0001/.001/.01/.1/1/10/100 on validation F1@10.
-   Retain that model without refitting. Rank by signed decision score.
+   Retain the evaluation model without refitting. A separate final model is refit
+   on train+validation for `predict`. Rank by signed decision score.
 5. Evaluate on held-out queries at k=5,10,20,50,100. Report macro precision,
    recall and per-query F1 averages. Compare equal-zone and body BM25 baselines.
 
@@ -83,16 +89,18 @@ This revision follows inspection of the original test results. Alpha selection
 still uses validation F1@10 only, but the revised test results are not a fresh,
 previously untouched evaluation. No statistical superiority is claimed.
 
-`zone_bm25_tiebreak` is an exploratory hybrid: zone score first (rounded to 12
-decimals), body BM25 within ties, then document ID. It keeps the pure method's
-learned weights. Its TREC scores encode descending ordinal rank; pure `zone`
-remains the required Method A. Diagnostics quantify tied weight optima and scores.
+The change from whole-field OR to per-term Boolean presence was also made after
+inspecting earlier test results. Both `zone` and `zone_or` have independent grid
+CSVs and diagnostics JSON files recording tied optima, distinct scores and top
+ties. The SVM's 88 features are unchanged. No real-valued tie-breaker is used.
 
 `search_ninjas_model.joblib` is the evaluation model trained on 135 queries.
 `search_ninjas_final_model.joblib` refits the scaler and SVM on 180 train+validation
 queries at the selected alpha, and relearns zone weights on those queries.
 The 45 test queries remain excluded. Reported metrics belong only to the evaluation
-model. Both bundles have separate metadata describing their fitting queries.
+model. Both bundles have separate metadata describing their fitting queries
+and `zone_scoring=term_presence_fraction_v1`. Older bundles are rejected by
+`predict`; regenerate both models with `train` after upgrading.
 
 To reproduce evaluation-model predictions, supply:
 

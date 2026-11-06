@@ -64,14 +64,15 @@ class Collection:
                     qvec[col] = (1 + np.log(query[term])) * idf[col]
             matched = (frequencies > 0).sum(1)
             boolean = (matched > 0).astype(float)
-            zones.append(boolean)
+            ratio = matched / max(len(terms), 1)
+            zones.append(ratio)
             norm_tf = frequencies / np.maximum(lengths[:, None], 1)
             qnorm = np.linalg.norm(qvec)
             cosine = vectors @ (qvec / qnorm) if qnorm else np.zeros(n)
             avg_length = max(lengths.mean(), 1e-12)
             denominator = frequencies + 1.2 * (.25 + .75 * lengths[:, None] / avg_length)
             bm25 = (bm * frequencies * 2.2 / denominator).sum(1)
-            blocks.append(np.column_stack((matched, matched / max(len(terms), 1),
+            blocks.append(np.column_stack((matched, ratio,
                 lengths, (frequencies > 0) @ query_idf, moments(frequencies),
                 moments(norm_tf), moments(frequencies * query_idf), boolean, cosine, bm25)))
         return np.hstack(blocks).astype(np.float32), np.column_stack(zones).astype(np.float32)

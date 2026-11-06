@@ -1,0 +1,8 @@
+{
+  "method": "zone_or",
+  "best_weight_tuples": 25,
+  "body_match_fraction": 0.5129809523809524,
+  "mean_distinct_scores": 3.8666666666666667,
+  "first_test_qid": "7",
+  "first_test_top_ties": 198
+}

@@ -21,7 +21,7 @@ def verify(root):
             relevant[q].add(d)
     rows = list(csv.DictReader((root / 'search_ninjas_metrics.csv').open()))
     label_of = {q['qid']: q['original_id'] for q in split['test']}
-    for method in ('zone', 'svm', 'zone_bm25_tiebreak'):
+    for method in ('zone', 'svm', 'zone_or'):
         run = defaultdict(list)
         lines = (root / f'search_ninjas_{method}_test_seqid.txt').read_text().splitlines()
         label_lines = (root / f'search_ninjas_{method}_test_labels.txt').read_text().splitlines()
@@ -52,6 +52,7 @@ def verify(root):
         bundle = joblib.load(root / f'search_ninjas_{name}.joblib')
         meta_path = 'search_ninjas_metadata.json' if role == 'evaluation' else 'search_ninjas_final_metadata.json'
         meta = json.loads((root / meta_path).read_text())
+        assert meta['zone_scoring'] == 'term_presence_fraction_v1'
         assert bundle['metadata'] == meta
         assert meta['role'] == role and set(meta['fit_qids']) == expected
         assert set(meta['fit_qids']).isdisjoint(ids['test'])

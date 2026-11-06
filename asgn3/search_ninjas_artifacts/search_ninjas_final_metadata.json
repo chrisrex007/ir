@@ -2,6 +2,7 @@
   "role": "deployment",
   "group": "search_ninjas; 23CS10002 Ananya Mondal, 23CS10012 Charniya Krish, 23CS30027 Ketan Suman, 23CS30048 Shatakshi Singh, 23EC37021 Shweta Agrawala",
   "seed": 42,
+  "zone_scoring": "term_presence_fraction_v1",
   "fit_qids": [
     "1",
     "2",
@@ -235,10 +236,10 @@
   "svm_alpha": 1.0,
   "svm_epochs": 17,
   "zone_weights": {
-    "title": 0.1,
+    "title": 0.5,
     "author": 0.0,
-    "bibliography": 0.1,
-    "body": 0.8
+    "bibliography": 0.2,
+    "body": 0.3
   },
   "inputs_sha256": {
     "cran.all.1400": "b234544b6ceccd131520df4a3cb6d42aee6576eb577933d047e722bbfe7b0b09",
